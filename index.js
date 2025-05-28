@@ -2,27 +2,23 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const admin = require('firebase-admin');
 const cors = require('cors');
+const path = require('path');
 
-const app = express();
-app.use(bodyParser.json());
-app.use(cors());
-
-// 🔐 Parseo seguro del JSON con reemplazo de \\n → \n
-const rawConfig = process.env.FIREBASE_CONFIG;
-const serviceAccount = JSON.parse(
-  rawConfig.replace(/\\n/g, '\n')
-);
+// ✅ Importa el archivo directamente
+const serviceAccount = require('./serviceAccountKey.json');
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-// 🌐 Ruta raíz
+const app = express();
+app.use(bodyParser.json());
+app.use(cors());
+
 app.get('/', (req, res) => {
   res.send('🚀 Backend Seguridad Ciudadana funcionando en Render');
 });
 
-// 🔔 Ruta para enviar notificaciones
 app.post('/send-status-update', async (req, res) => {
   const { token, newStatus } = req.body;
 
@@ -48,7 +44,6 @@ app.post('/send-status-update', async (req, res) => {
   }
 });
 
-// 🚀 Puerto
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
