@@ -3,11 +3,14 @@ const bodyParser = require('body-parser');
 const admin = require('firebase-admin');
 const cors = require('cors');
 
-// 🔥 PARSE MANUAL del JSON con secuencias de escape limpias (Firebase config en base64)
-const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_CONFIG_BASE64, 'base64').toString('utf8'));
+// 🔥 Parsear manualmente el JSON de configuración desde BASE64
+const serviceAccount = JSON.parse(
+  Buffer.from(process.env.FIREBASE_CONFIG_BASE64, 'base64').toString('utf8')
+);
 
+// Inicializar Firebase Admin
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(serviceAccount),
 });
 
 const app = express();
@@ -19,7 +22,7 @@ app.get('/', (req, res) => {
   res.send('🚀 Backend Seguridad Ciudadana funcionando en Render');
 });
 
-// 📬 Enviar notificación push cuando cambia el estado del reporte
+// 📬 Enviar notificación cuando cambia el estado del reporte
 app.post('/send-status-update', async (req, res) => {
   const { token, newStatus } = req.body;
 
@@ -45,22 +48,31 @@ app.post('/send-status-update', async (req, res) => {
   }
 });
 
-// 📥 Recibir y guardar el token del ciudadano
+// 📥 Guardar token del ciudadano en Firestore
 app.post('/api/guardar-token', async (req, res) => {
-  const { token } = req.body;
+  const { token, email } = req.body;
 
-  if (!token) {
-    return res.status(400).json({ error: 'Token no proporcionado' });
+  if (!token || !email) {
+    return res.status(400).json({ error: 'Token o email no proporcionado' });
   }
 
-  console.log('📲 Token FCM recibido del ciudadano:', token);
+  try {
+    const db = admin.firestore();
+    await db.collection('user_tokens').doc(email).set({
+      token,
+      email,
+      updatedAt: new Date(),
+    });
 
-  // Aquí podrías guardar el token en tu base de datos si lo necesitas
-
-  res.status(200).json({ success: true, message: 'Token guardado (simulado)' });
+    console.log('📦 Token guardado en Firestore para:', email);
+    res.status(200).json({ success: true, message: 'Token guardado correctamente' });
+  } catch (error) {
+    console.error('❌ Error al guardar token en Firestore:', error);
+    res.status(500).json({ error: 'Error al guardar el token' });
+  }
 });
 
-// 🟢 Arrancar servidor
+// 🟢 Iniciar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
