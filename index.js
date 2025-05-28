@@ -4,9 +4,8 @@ const admin = require('firebase-admin');
 const cors = require('cors');
 
 // 🔥 PARSE MANUAL del JSON con secuencias de escape limpias
-const serviceAccount = JSON.parse(
-  process.env.FIREBASE_CONFIG.replace(/\\n/g, '\n')
-);
+const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_CONFIG_BASE64, 'base64').toString('utf8'));
+
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
