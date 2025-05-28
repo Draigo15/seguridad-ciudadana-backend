@@ -3,10 +3,11 @@ const bodyParser = require('body-parser');
 const admin = require('firebase-admin');
 const cors = require('cors');
 
-// Leer credenciales desde variable de entorno (ya escapadas correctamente)
-const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG);
+// 🔥 PARSE MANUAL del JSON con secuencias de escape limpias
+const serviceAccount = JSON.parse(
+  process.env.FIREBASE_CONFIG.replace(/\\n/g, '\n')
+);
 
-// Inicializar Firebase Admin
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 });
@@ -15,12 +16,10 @@ const app = express();
 app.use(bodyParser.json());
 app.use(cors());
 
-// Ruta raíz de prueba
 app.get('/', (req, res) => {
   res.send('🚀 Backend Seguridad Ciudadana funcionando en Render');
 });
 
-// Ruta para enviar notificaciones push
 app.post('/send-status-update', async (req, res) => {
   const { token, newStatus } = req.body;
 
@@ -39,14 +38,13 @@ app.post('/send-status-update', async (req, res) => {
   try {
     const response = await admin.messaging().send(message);
     console.log('✅ Notificación enviada:', response);
-    res.status(200).json({ success: true, response });
+    res.status(200).json({ success: true });
   } catch (error) {
     console.error('❌ Error al enviar la notificación:', error);
     res.status(500).json({ error: 'Error al enviar la notificación' });
   }
 });
 
-// Puerto para Render
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
