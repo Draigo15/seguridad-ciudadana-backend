@@ -21,6 +21,10 @@ admin.initializeApp({
 const app = express();
 app.use(bodyParser.json());
 
+// Render y la mayoría de plataformas de despliegue ponen un proxy delante.
+// Esto permite que Express identifique correctamente la IP del cliente usando X-Forwarded-For.
+app.set('trust proxy', 1);
+
 // Seguridad HTTP Headers
 app.use(helmet({
   contentSecurityPolicy: false, // Deshabilitar CSP por simplicidad en API JSON
@@ -87,6 +91,9 @@ const transporter = process.env.SMTP_HOST
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true',
+      requireTLS: process.env.SMTP_REQUIRE_TLS === 'true', // útil en 587 con STARTTLS
+      connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT_MS || '10000', 10),
+      socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT_MS || '10000', 10),
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
@@ -94,6 +101,26 @@ const transporter = process.env.SMTP_HOST
     })
   : null;
 const SMTP_FROM = process.env.SMTP_FROM || 'no-reply@seguridad-ciudadana.local';
+
+// Proveedor HTTP (SendGrid) como alternativa para evitar bloqueos/timeout SMTP
+const EMAIL_PROVIDER = process.env.EMAIL_PROVIDER;
+const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
+let sgMail = null;
+const useSendGrid = EMAIL_PROVIDER === 'sendgrid' && !!SENDGRID_API_KEY;
+if (useSendGrid) {
+  sgMail = require('@sendgrid/mail');
+  sgMail.setApiKey(SENDGRID_API_KEY);
+}
+
+async function sendEmail({ to, subject, text }) {
+  if (transporter) {
+    return transporter.sendMail({ from: SMTP_FROM, to, subject, text });
+  }
+  if (useSendGrid && sgMail) {
+    return sgMail.send({ to, from: SMTP_FROM, subject, text });
+  }
+  throw new Error('Email provider not configured');
+}
 
 // Utilidades OTP
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
@@ -188,18 +215,20 @@ app.post('/api/auth/email-otp/send', authLimiter, async (req, res) => {
       createdAt: new Date(),
     });
 
-    if (transporter) {
-      await transporter.sendMail({
-        from: SMTP_FROM,
+    try {
+      await sendEmail({
         to: email,
         subject: 'Código de verificación (Seguridad Ciudadana)',
         text: `Tu código de verificación es ${code}. Expira en 10 minutos.`,
       });
       return res.json({ success: true });
-    } else {
-      // Modo desarrollo: sin SMTP, mostramos el código en consola y lo devolvemos como pista
-      console.warn('⚠️ SMTP no configurado. Código OTP (solo DEV):', code);
-      return res.json({ success: true, devHint: code });
+    } catch (e) {
+      // Si no hay proveedor configurado, mantenemos comportamiento DEV
+      if (String(e.message).includes('Email provider not configured')) {
+        console.warn('⚠️ SMTP/Proveedor email no configurado. OTP (solo DEV):', code);
+        return res.json({ success: true, devHint: code });
+      }
+      throw e;
     }
   } catch (error) {
     console.error('❌ Error al enviar OTP por email:', error);

@@ -18,6 +18,7 @@ node index.js
 - Variables de entorno:
   - `FIREBASE_CONFIG_BASE64` (obligatoria)
   - `SMTP_*` (si envías emails en producción)
+  - Alternativa: `EMAIL_PROVIDER=sendgrid` y `SENDGRID_API_KEY` (recomendado si tu plataforma bloquea puertos SMTP)
   - `PORT` (Render asigna automáticamente)
 
 ## Logs y monitoreo
@@ -32,4 +33,7 @@ node index.js
 ## Troubleshooting
 - Error credenciales Firebase: verifica `FIREBASE_CONFIG_BASE64` y formato del JSON.
 - Notificaciones FCM no llegan: confirma token guardado y permisos en cliente.
-- Email OTP no se envía: valida `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` y puerto.
+- Email OTP no se envía:
+  - En SMTP: valida `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, `SMTP_PORT`/`SMTP_SECURE`.
+  - Si ves `ETIMEDOUT`/`CONN` al conectar a SMTP, usa proveedor HTTP (`EMAIL_PROVIDER=sendgrid`) para evitar bloqueos de egress.
+  - Asegura `SMTP_FROM` con un remitente válido.
