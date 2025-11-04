@@ -4,6 +4,9 @@ const admin = require('firebase-admin');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+// Sesiones opacas (sin JWT)
 
 // 🔥 Parsear manualmente el JSON de configuración desde BASE64
 const serviceAccount = JSON.parse(
@@ -17,9 +20,66 @@ admin.initializeApp({
 
 const app = express();
 app.use(bodyParser.json());
-app.use(cors());
+
+// Seguridad HTTP Headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Deshabilitar CSP por simplicidad en API JSON
+}));
+
+// CORS restringido
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}));
+
+// Rate limiting global y por ruta sensible
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 1000,
+});
+app.use(globalLimiter);
+
+const authLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const db = admin.firestore();
+
+// Configuración de sesiones opacas
+const SESSION_TTL_MINUTES = parseInt(process.env.SESSION_TTL_MINUTES || '120', 10);
+
+// Helpers de sesión opaca
+async function createSession(email) {
+  const token = crypto.randomUUID();
+  const expiresAt = Date.now() + SESSION_TTL_MINUTES * 60 * 1000;
+  await db.collection('sessions').doc(token).set({
+    token,
+    email,
+    expiresAt,
+    createdAt: new Date(),
+  });
+  return { token, expiresAt };
+}
+
+async function getSession(token) {
+  const snap = await db.collection('sessions').doc(token).get();
+  return snap.exists ? snap.data() : null;
+}
+
+async function revokeSession(token) {
+  await db.collection('sessions').doc(token).delete();
+}
 
 // 📧 Configuración de SMTP (opcional). Si no está configurado, se usa modo DEV que imprime el OTP en consola
 const transporter = process.env.SMTP_HOST
@@ -110,7 +170,7 @@ app.post('/enviar-notificacion-estado', async (req, res) => {
 // =============================
 
 // Enviar OTP por email
-app.post('/api/auth/email-otp/send', async (req, res) => {
+app.post('/api/auth/email-otp/send', authLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) {
@@ -148,7 +208,7 @@ app.post('/api/auth/email-otp/send', async (req, res) => {
 });
 
 // Verificar OTP por email
-app.post('/api/auth/email-otp/verify', async (req, res) => {
+app.post('/api/auth/email-otp/verify', authLimiter, async (req, res) => {
   try {
     const { email, code } = req.body;
     if (!email || !code) {
@@ -181,17 +241,62 @@ app.post('/api/auth/email-otp/verify', async (req, res) => {
       return res.status(401).json({ error: 'Código inválido' });
     }
 
-    // Éxito: borramos OTP y confirmamos
+    // Éxito: borrar OTP y crear sesión opaca
     await docRef.delete();
-    return res.json({ success: true });
+    const { token, expiresAt } = await createSession(email);
+    const expiresInMinutes = SESSION_TTL_MINUTES;
+    return res.json({ success: true, token, expiresInMinutes, expiresAt });
   } catch (error) {
     console.error('❌ Error al verificar OTP por email:', error);
     return res.status(500).json({ error: 'Error interno al verificar OTP' });
   }
 });
 
-// 🟢 Iniciar servidor
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
+// Validar sesión (token opaco)
+app.get('/api/auth/session/validate', authLimiter, async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) {
+      return res.status(401).json({ valid: false, error: 'Token requerido' });
+    }
+    const token = auth.split(' ')[1];
+    const session = await getSession(token);
+    if (!session) {
+      return res.status(401).json({ valid: false, error: 'Token inválido' });
+    }
+    if (session.expiresAt < Date.now()) {
+      await revokeSession(token);
+      return res.status(401).json({ valid: false, error: 'Token expirado' });
+    }
+    return res.json({ valid: true, email: session.email, exp: Math.floor(session.expiresAt / 1000) });
+  } catch (error) {
+    console.error('❌ Error al validar sesión:', error);
+    return res.status(401).json({ valid: false, error: 'Token inválido o expirado' });
+  }
 });
+
+// Cerrar sesión (revocar token opaco)
+app.post('/api/auth/logout', authLimiter, async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: 'Token requerido' });
+    }
+    const token = auth.split(' ')[1];
+    await revokeSession(token);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('❌ Error al cerrar sesión:', error);
+    return res.status(401).json({ success: false, error: 'Token inválido' });
+  }
+});
+
+// Exportar la app para pruebas e iniciar servidor solo si es entrypoint directo
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;

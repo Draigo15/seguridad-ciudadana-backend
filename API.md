@@ -49,13 +49,13 @@ Documentación de endpoints disponibles y ejemplos de uso.
   - 500: `{ "error": "No se pudo enviar el email" }`
 
 ## 5) POST `/api/auth/email-otp/verify`
-- Propósito: verificar el código OTP enviado por email.
+- Propósito: verificar el código OTP enviado por email y abrir sesión.
 - Body (JSON):
 ```json
 { "email": "usuario@example.com", "code": "123456" }
 ```
 - Respuestas:
-  - 200: `{ "success": true }`
+  - 200: `{ "success": true, "token": "<session_token>", "expiresInMinutes": 120 }`
   - 400: `{ "error": "Email y código requeridos" }`
   - 404: `{ "error": "OTP no encontrado, solicita uno nuevo" }`
   - 410: `{ "error": "Código expirado, solicita uno nuevo" }`
@@ -63,7 +63,25 @@ Documentación de endpoints disponibles y ejemplos de uso.
   - 401: `{ "error": "Código inválido" }`
   - 500: `{ "error": "Error interno al verificar OTP" }`
 
+## 6) GET `/api/auth/session/validate`
+- Propósito: validar el token de sesión opaco del usuario.
+- Headers: `Authorization: Bearer <token>`
+- Respuestas:
+  - 200: `{ "valid": true, "email": "usuario@example.com", "exp": 1712345678 }`
+  - 401: `{ "error": "Token inválido o expirado" }`
+  - 500: `{ "error": "Error al validar token" }`
+
+## 7) POST `/api/auth/logout`
+- Propósito: cerrar sesión (revocar el token opaco).
+- Headers: `Authorization: Bearer <token>`
+- Respuestas:
+  - 200: `{ "success": true }`
+  - 401: `{ "error": "Token inválido o expirado" }`
+  - 500: `{ "error": "Error al revocar token" }`
+
 ## Notas
 - El OTP expira a los 10 minutos y se almacena hashed en Firestore.
 - El número de intentos está limitado a 5.
 - En DEV sin SMTP, el código se imprime en consola y se devuelve como `devHint`.
+ - Tras verificar OTP, se emite un token de sesión opaco con expiración configurable (`SESSION_TTL_MINUTES`).
+ - Los tokens se almacenan en la colección `sessions` de Firestore y se invalidan al cerrar sesión o expirar.

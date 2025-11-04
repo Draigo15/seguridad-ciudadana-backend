@@ -21,6 +21,9 @@ Si no configuras SMTP, el servidor funciona en modo DEV: el código OTP se impri
 
 ## Otros
 - `PORT`: puerto del servidor (por defecto `3000`).
+ 
+### Autenticación por sesión (sin JWT)
+- `SESSION_TTL_MINUTES`: minutos de validez del token de sesión (por defecto `120`).
 
 ## Ejemplo (.env)
 ```env
@@ -32,4 +35,7 @@ SMTP_USER=usuario
 SMTP_PASS=clave
 SMTP_FROM=seguridad@tu-dominio.com
 PORT=3000
+
+# Sesión
+SESSION_TTL_MINUTES=120
 ```

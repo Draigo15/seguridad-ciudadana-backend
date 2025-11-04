@@ -25,6 +25,6 @@ Prácticas recomendadas y consideraciones para este servicio.
 - Limita tamaño de request y rate limit por IP si es público.
 
 ## Futuras mejoras
-- Autenticación JWT para proteger endpoints sensibles (libería ya instalada).
+- Refuerzo de sesiones opacas: rotación periódica del token y límites de sesión activa.
 - Auditoría de cambios y eventos críticos.
 - Monitoreo y alertas (fallos de envío, picos de intentos OTP).
