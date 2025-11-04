@@ -92,6 +92,9 @@ const transporter = process.env.SMTP_HOST
       port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true',
       requireTLS: process.env.SMTP_REQUIRE_TLS === 'true', // útil en 587 con STARTTLS
+      family: process.env.SMTP_FORCE_IPV4 === 'true' ? 4 : undefined,
+      logger: process.env.SMTP_DEBUG === 'true',
+      debug: process.env.SMTP_DEBUG === 'true',
       connectionTimeout: parseInt(process.env.SMTP_CONNECTION_TIMEOUT_MS || '10000', 10),
       socketTimeout: parseInt(process.env.SMTP_SOCKET_TIMEOUT_MS || '10000', 10),
       auth: {
@@ -121,6 +124,41 @@ async function sendEmail({ to, subject, text }) {
   }
   throw new Error('Email provider not configured');
 }
+
+// =============================
+// 🔎 Diagnóstico de proveedor de email
+// =============================
+app.get('/api/diagnostics/email', async (req, res) => {
+  try {
+    const base = {
+      provider: transporter ? 'smtp' : (useSendGrid ? 'sendgrid' : 'none'),
+      from: SMTP_FROM,
+      smtp: transporter ? {
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT || '587', 10),
+        secure: process.env.SMTP_SECURE === 'true',
+        requireTLS: process.env.SMTP_REQUIRE_TLS === 'true',
+      } : null,
+    };
+
+    if (transporter) {
+      try {
+        const ok = await transporter.verify();
+        return res.json({ ...base, configured: true, verifyOk: !!ok });
+      } catch (e) {
+        return res.status(500).json({ ...base, configured: true, verifyOk: false, error: String(e && e.message || e) });
+      }
+    }
+
+    if (useSendGrid) {
+      return res.json({ ...base, configured: true, verifyOk: true });
+    }
+
+    return res.status(200).json({ ...base, configured: false });
+  } catch (err) {
+    return res.status(500).json({ error: 'Diagnostics failed' });
+  }
+});
 
 // Utilidades OTP
 const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
